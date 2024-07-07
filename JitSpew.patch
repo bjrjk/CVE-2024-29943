@@ -1,0 +1,73 @@
+diff --git a/js/src/jit/IonAnalysis.cpp b/js/src/jit/IonAnalysis.cpp
+index 543ed0eb8372..e7982b419d74 100644
+--- a/js/src/jit/IonAnalysis.cpp
++++ b/js/src/jit/IonAnalysis.cpp
+@@ -4012,6 +4012,9 @@ static bool TryEliminateBoundsCheck(BoundsCheckMap& checks, size_t blockIndex,
+     return true;
+   }
+ 
++  JitSpew(js::jit::JitSpew_Range, "Trying to eliminate MBoundsCheck: Dominating %d: [%d, %d]; Dominated %d: [%d, %d]\n",
++    dominating->id(), dominating->minimum(), dominating->maximum(), dominated->id(), dominated->minimum(), dominated->maximum());
++
+   SimpleLinearSum sumA = ExtractLinearSum(dominating->index());
+   SimpleLinearSum sumB = ExtractLinearSum(dominated->index());
+ 
+@@ -4044,6 +4047,9 @@ static bool TryEliminateBoundsCheck(BoundsCheckMap& checks, size_t blockIndex,
+   dominating->setMaximum(newMaximum);
+   dominating->setBailoutKind(BailoutKind::HoistBoundsCheck);
+ 
++  JitSpew(js::jit::JitSpew_Range, "Eliminated MBoundsCheck: Dominating %d: [%d, %d]; Dominated %d: [%d, %d]\n",
++    dominating->id(), dominating->minimum(), dominating->maximum(), dominated->id(), dominated->minimum(), dominated->maximum());
++
+   return true;
+ }
+ 
+diff --git a/js/src/jit/JSONSpewer.cpp b/js/src/jit/JSONSpewer.cpp
+index 81ce1a2859ea..db26aadfaa41 100644
+--- a/js/src/jit/JSONSpewer.cpp
++++ b/js/src/jit/JSONSpewer.cpp
+@@ -69,6 +69,13 @@ void JSONSpewer::spewMDef(MDefinition* def) {
+   propertyName("opcode");
+   out_.printf("\"");
+   def->printOpcode(out_);
++  if (def->isBoundsCheck()) {
++    auto* boundsCheck = def->toBoundsCheck();
++    out_.printf(" #[min, max]: [%d, %d], fallible: %d", boundsCheck->minimum(), boundsCheck->maximum(), boundsCheck->fallible());
++  } else if (def->isBoundsCheckLower()) {
++    auto* boundsCheckLower = def->toBoundsCheckLower();
++    out_.printf(" #[min, max]: [%d, -], fallible: %d", boundsCheckLower->minimum(), boundsCheckLower->fallible());
++  }
+   out_.printf("\"");
+ 
+   beginListProperty("attributes");
+diff --git a/js/src/jit/RangeAnalysis.cpp b/js/src/jit/RangeAnalysis.cpp
+index 25073976121c..8aa6bd68bef7 100644
+--- a/js/src/jit/RangeAnalysis.cpp
++++ b/js/src/jit/RangeAnalysis.cpp
+@@ -2304,6 +2304,8 @@ static inline bool SymbolicBoundIsValid(MBasicBlock* header, MBoundsCheck* ins,
+ 
+ bool RangeAnalysis::tryHoistBoundsCheck(MBasicBlock* header,
+                                         MBoundsCheck* ins) {
++  JitSpew(js::jit::JitSpew_Range, "Try to hoist MBoundsCheck %d: [%d, %d]\n",
++    ins->id(), ins->minimum(), ins->maximum());
+   // The bounds check's length must be loop invariant or a constant.
+   MDefinition* length = DefinitionOrBetaInputDefinition(ins->length());
+   if (length->block()->isMarked() && !length->isConstant()) {
+@@ -2378,6 +2380,8 @@ bool RangeAnalysis::tryHoistBoundsCheck(MBasicBlock* header,
+   lowerCheck->collectRangeInfoPreTrunc();
+   lowerCheck->setBailoutKind(BailoutKind::HoistBoundsCheck);
+   preLoop->insertBefore(preLoop->lastIns(), lowerCheck);
++  JitSpew(js::jit::JitSpew_Range, "Hoisted a MBoundsCheckLower %d: [%d, -]\n",
++    lowerCheck->id(), lowerCheck->minimum());
+ 
+   // A common pattern for iterating over typed arrays is this:
+   //
+@@ -2419,6 +2423,8 @@ bool RangeAnalysis::tryHoistBoundsCheck(MBasicBlock* header,
+     upperCheck->collectRangeInfoPreTrunc();
+     upperCheck->setBailoutKind(BailoutKind::HoistBoundsCheck);
+     preLoop->insertBefore(preLoop->lastIns(), upperCheck);
++    JitSpew(js::jit::JitSpew_Range, "Hoisted a MBoundsCheck %d: [%d, %d]\n",
++      upperCheck->id(), upperCheck->minimum(), upperCheck->maximum());
+   }
+ 
+   return true;
